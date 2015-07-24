@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:cxf="http://camel.apache.org/schema/cxf"
+	xmlns:jaxrs="http://cxf.apache.org/jaxrs" xmlns:util="http://www.springframework.org/schema/util"
+	xmlns:camel="http://camel.apache.org/schema/spring" xmlns:context="http://www.springframework.org/schema/context"
+	xsi:schemaLocation="
+       http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://camel.apache.org/schema/cxf http://camel.apache.org/schema/cxf/camel-cxf.xsd
+       http://cxf.apache.org/jaxrs http://cxf.apache.org/schemas/jaxrs.xsd
+       http://camel.apache.org/schema/spring http://camel.apache.org/schema/spring/camel-spring.xsd
+       http://www.springframework.org/schema/util http://www.springframework.org/schema/util/spring-util.xsd
+       http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context.xsd
+    ">
+
+	<context:property-placeholder/>
+	
+	<bean id="bridgePropertyPlaceholder"
+		class="org.apache.camel.spring.spi.BridgePropertyPlaceholderConfigurer" />
+
+	<camel:sslContextParameters id="sslContextParameters">
+		<camel:keyManagers keyPassword="redhat">
+			<camel:keyStore type="JKS" resource="src/main/resources/keystore.jks"
+				password="redhat" />
+		</camel:keyManagers>
+		<camel:trustManagers>
+			<camel:keyStore type="JKS" resource="src/main/resources/keystore.jks"
+				password="redhat" />
+		</camel:trustManagers>
+		<camel:serverParameters clientAuthentication="REQUIRE" />
+	</camel:sslContextParameters>
+
+	<util:map id="realm">
+		<entry key="admin" value="foo" />
+		<entry key="bar" value="foo" />
+	</util:map>
+
+	<bean id="bindyDataformatIn"
+		class="org.apache.camel.dataformat.bindy.csv.BindyCsvDataFormat">
+		<constructor-arg value="com.redhat.brq.integration.exercise.model" />
+	</bean>
+	<bean id="bindyDataformatOut"
+		class="org.apache.camel.dataformat.bindy.csv.BindyCsvDataFormat">
+		<constructor-arg value="com.redhat.brq.integration.exercise.inventory" />
+	</bean>
+
+	<bean id="inventory"
+		class="com.redhat.brq.integration.exercise.inventory.InventoryService" />
+	<bean id="shipment"
+		class="com.redhat.brq.integration.exercise.shipment.ShipmentService" />
+	<bean id="accounting"
+		class="com.redhat.brq.integration.exercise.accounting.AccountingService" />
+
+	<bean id="csv-normalizer"
+		class="com.redhat.brq.integration.exercise.inventory.CSVNormalizer" />
+
+	<bean id="jmsConnectionFactory" class="org.apache.activemq.ActiveMQSslConnectionFactory">
+		<property name="brokerURL" value="ssl://localhost:${broker.port}" />
+		<property name="userName" value="shipuser" />
+		<property name="password" value="shippwd" />
+		<property name="trustStore" value="src/main/resources/keystore.jks" />
+		<property name="trustStorePassword" value="redhat" />
+	</bean>
+
+	<bean id="jmsConfig" class="org.apache.camel.component.jms.JmsConfiguration">
+		<property name="connectionFactory" ref="jmsConnectionFactory" />
+		<property name="transacted" value="false" />
+		<property name="concurrentConsumers" value="10" />
+	</bean>
+
+	<bean id="activemq" class="org.apache.activemq.camel.component.ActiveMQComponent">
+		<property name="configuration" ref="jmsConfig" />
+	</bean>
+
+	<camelContext xmlns="http://camel.apache.org/schema/spring">
+		<route id="inventory">
+			<from uri="file:target/inbox/inventory" />
+			<log message="[inventory] Got message: ${body}" />
+			<unmarshal ref="bindyDataformatIn" />
+			<to uri="csv-normalizer" />
+			<to uri="bean:inventory" />
+			<marshal ref="bindyDataformatOut" />
+			<log message="[inventory] Got reply ${body}" />
+			<to uri="file:target/outbox/inventory" />
+		</route>
+		<route id="accounting">
+			<from
+				uri="restlet:https://localhost:7070/accounting?restletMethod=post&amp;restletRealm=#realm&amp;sslContextParameters=#sslContextParameters" />
+			<convertBodyTo type="java.lang.String" />
+			<log message="[accounting] Got message: ${body}" />
+			<unmarshal>
+				<json library="Gson" unmarshalTypeName="com.redhat.brq.integration.exercise.model.Order" />
+			</unmarshal>
+			<log message="[accounting] Got converted: ${body}" />
+			<to uri="bean:accounting" />
+			<marshal>
+				<json library="Gson" />
+			</marshal>
+			<log message="[accounting] Got reply ${body}" />
+		</route>
+		<route id="shipment">
+			<from uri="activemq:queue:SHPMNT.REQ" />
+			<log message="[shipment] Got message: ${body}" />
+			<unmarshal>
+				<jaxb prettyPrint="true" contextPath="com.redhat.brq.integration.exercise.model" />
+			</unmarshal>
+			<to uri="bean:shipment" />
+			<marshal>
+				<jaxb prettyPrint="true"
+					contextPath="com.redhat.brq.integration.exercise.shipment" />
+			</marshal>
+			<log message="[shipment] Got reply: ${body}" />
+			<to uri="activemq:queue:SHPMNT.RESP?jmsMessageType=Text" />
+		</route>
+	</camelContext>
+
+</beans>
