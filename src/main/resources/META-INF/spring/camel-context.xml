@@ -13,7 +13,7 @@
     ">
 
 	<context:property-placeholder/>
-	
+
 	<bean id="bridgePropertyPlaceholder"
 		class="org.apache.camel.spring.spi.BridgePropertyPlaceholderConfigurer" />
 
@@ -27,6 +27,17 @@
 				password="redhat" />
 		</camel:trustManagers>
 		<camel:serverParameters clientAuthentication="REQUIRE" />
+	</camel:sslContextParameters>
+
+	<camel:sslContextParameters id="sslContextParametersWithoutAuthentication">
+		<camel:keyManagers keyPassword="redhat">
+			<camel:keyStore type="JKS" resource="src/main/resources/keystore.jks"
+							password="redhat" />
+		</camel:keyManagers>
+		<camel:trustManagers>
+			<camel:keyStore type="JKS" resource="src/main/resources/keystore.jks"
+							password="redhat" />
+		</camel:trustManagers>
 	</camel:sslContextParameters>
 
 	<util:map id="realm">
@@ -85,6 +96,21 @@
 		<route id="accounting">
 			<from
 				uri="restlet:https://localhost:7070/accounting?restletMethod=post&amp;restletRealm=#realm&amp;sslContextParameters=#sslContextParameters" />
+			<convertBodyTo type="java.lang.String" />
+			<log message="[accounting] Got message: ${body}" />
+			<unmarshal>
+				<json library="Gson" unmarshalTypeName="com.redhat.brq.integration.exercise.model.Order" />
+			</unmarshal>
+			<log message="[accounting] Got converted: ${body}" />
+			<to uri="bean:accounting" />
+			<marshal>
+				<json library="Gson" />
+			</marshal>
+			<log message="[accounting] Got reply ${body}" />
+		</route>
+		<route id="accountingWithoutAuthentication">
+			<from
+					uri="restlet:https://localhost:7171/accounting?restletMethod=post&amp;restletRealm=#realm&amp;sslContextParameters=#sslContextParametersWithoutAuthentication" />
 			<convertBodyTo type="java.lang.String" />
 			<log message="[accounting] Got message: ${body}" />
 			<unmarshal>
