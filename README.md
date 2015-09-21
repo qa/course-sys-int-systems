@@ -35,7 +35,7 @@ If there is enough pieces of a given article than the appropriate amount is rese
 ```
 {
 	"id": 1,
-	address: {
+	"address": {
 		"firstName": "Jiri",
 		"lastName": "Novak",
 		"street": "Purkynova",
